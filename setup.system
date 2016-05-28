@@ -1,0 +1,47 @@
+#!/bin/sh
+
+# system
+
+uci set system.@system[-1].hostname=router
+uci set system.@system[-1].timezone=KST-9
+uci set system.@system[-1].zonename=Asia/Seoul
+
+uci -q del system.ntp.server
+uci add_list system.ntp.server=0.kr.pool.ntp.org
+uci add_list system.ntp.server=1.kr.pool.ntp.org
+uci add_list system.ntp.server=2.kr.pool.ntp.org
+uci add_list system.ntp.server=3.kr.pool.ntp.org
+
+uci commit system
+/etc/init.d/system restart
+
+# network
+
+#uci set network.lan.force_link=1	# not to make eth1 down/up on a lan link up
+
+#uci commit network
+#/etc/init.d/network restart
+
+# dropbear(ssh)
+
+uci set dropbear.@dropbear[-1].PasswordAuth=0
+uci set dropbear.@dropbear[-1].RootPasswordAuth=0
+uci set dropbear.@dropbear[-1].Port=24	# port 24 is for any private mail system
+
+uci commit dropbear
+/etc/init.d/dropbear restart
+
+# /etc/profile
+
+# Note: although sh does not process escape sequences within single quotes, sed does
+# in 's' and 'a' commands.
+grep -Fqs "alias ll=" /etc/profile || sed -i '
+/export PS1=/ { s/\\u@//; a\
+PS1="\\[\\e[38;5;178m\\]$PS1\\[\\e[m\\]"
+}
+$a\
+\
+alias ls="ls -F --color=never"\
+alias la="ls -A"\
+alias ll="ls -al"
+' /etc/profile

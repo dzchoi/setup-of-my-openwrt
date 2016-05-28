@@ -1,0 +1,32 @@
+#!/bin/sh -ex
+
+# upload image
+#ssh router wget -P /tmp "http://downloads.openwrt.org/snapshots/trunk/ar71xx/generic/openwrt-ar71xx-generic-tl-wr941nd-v5-squashfs-sysupgrade.bin" #or
+#scp ~/openwrt/bin/ar71xx/openwrt-ar71xx-generic-tl-wr941nd-v5-squashfs-sysupgrade.bin router:/tmp
+
+# flash
+#ssh router "sysupgrade -n /tmp/openwrt-ar71xx-generic-tl-wr941nd-v5-squashfs-sysupgrade.bin"
+
+# Note:
+# - The prebuilt trunk image does not come with LuCI and lua.
+# - CC and trunk builds before r46809 need to set initial password using telnet.
+
+rm -f ~/.ssh/known_hosts
+scp -F /dev/null ~/.backup/id_rsa.pub root@192.168.1.1:/etc/dropbear/authorized_keys
+
+files="setup.system setup.wifi setup.firewall setup.dhcp setup.ddns"
+scp -F /dev/null -o IdentityFile=~/.backup/id_rsa $files wol root@192.168.1.1:/tmp
+
+# install opkgs first, otherwise we might get out-of-memory error on install curl
+ssh -F /dev/null -o IdentityFile=~/.backup/id_rsa root@192.168.1.1 "\
+cd /tmp
+sed -i '3,\${/^#/!s/^/#/}' /etc/opkg/distfeeds.conf # for out of memory with opkg
+opkg update
+opkg list-installed | grep -Fq etherwake || which ether-wake ||
+opkg install etherwake				# for wol
+opkg list-installed | grep -Fq iptables-mod-conntrack-extra ||
+opkg install iptables-mod-conntrack-extra	# for iptables xt_recent module
+for file in $files; do ./\$file; rm \$file; done
+mv wol /root"
+
+ssh router reboot

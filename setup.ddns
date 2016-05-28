@@ -1,0 +1,38 @@
+#!/bin/sh
+# setup ddns for dzchoi.mooo.com
+
+echo '#!/bin/sh
+# to be run by udhcpc
+
+record="********************************************"
+    # check this from: http://freedns.afraid.org > Dynamic DNS > Direct URL
+result=/tmp/ddns.updated
+    # will get the update result
+
+# updating ddns only when:
+# - "$1" == "renew" or "$1" == "bound" and
+# - /var/run/udhcpc-eth0.ip does not exist
+#   or contains a different ip from $ip
+#   or is older than 4 days
+
+old_ip=/var/run/udhcpc-eth0.ip
+if [ "$1" == "renew" -o "$1" == "bound" ] &&
+'\
+"$(if find /dev/null -mtime 0 >/dev/null 2>&1; then
+echo '   ! { [ `find $old_ip -mtime -4` ] && [ "$ip" == "`cat $old_ip`" ]; }; then'
+else # if the busybox find does not support -mtime
+echo '   { ! grep -Fqs "$ip" $old_ip ||
+	[ $((`date +%s` - `date -r $old_ip +%s`)) -ge 345600 ]; }; then'
+fi)"\
+'
+    wget -qO $result \
+    "http://freedns.afraid.org/dynamic/update.php?$record&address=$ip"
+    #or wget -qO $result "http://freedns.afraid.org/dynamic/update.php?$record"
+    # for automatic IP detection
+    if grep -Fqs "$ip" $result; then echo $ip >$old_ip; fi
+    cat $result | logger -t udhcpc.user
+else
+    logger -t udhcpc.user "Update skipped."
+fi' >/etc/udhcpc.user
+
+chmod 700 /etc/udhcpc.user

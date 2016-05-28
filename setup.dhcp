@@ -1,0 +1,79 @@
+#!/bin/sh
+# Note:
+# - Dnsmasq will send its own address as the dns server for dhcp clients, the upstream
+#   dns servers that dnsmasq uses to forward the dns queries when it cannot resolve
+#   by itself (that is, from /etc/hosts) are determined by /etc/resolv.conf AND
+#   dhcp.@dnsmasq[*].server list.
+# - /etc/resolv.conf has only "nameserver 127.0.0.1" so that the router itself sits as
+#   the only DNS server for all local hosts and for itself.
+# - The entries in /tmp/resolv.conf.auto are retrieved from ISP on each DHCP bound/
+#   renewal for wan (by running /lib/netifd/dhcp.script). And they are used in place
+#   of /etc/resolv.conf as specified in dhcp.@dnsmasq[-1].resolvfile by default.
+# - For the format of dhcp.@dnsmasq[*].server, refer to the -S option of dnsmasq:
+#   http://www.thekelleys.org.uk/dnsmasq/docs/dnsmasq-man.html
+
+uci -q del dhcp.@dnsmasq[-1].local	# first consult /etc/hosts for queries
+uci -q del dhcp.@dnsmasq[-1].domain	# blank domain name for local hosts
+uci -q del dhcp.@dnsmasq[-1].server
+uci -q del dhcp.@dnsmasq[-1].resolvfile	# ignore ISP's dns servers
+uci add_list dhcp.@dnsmasq[-1].server=8.8.8.8
+uci add_list dhcp.@dnsmasq[-1].server=8.8.4.4
+
+# delete all hosts for static IP
+while uci -q del dhcp.@host[-1] >/dev/null; do :; done
+
+uci add dhcp host
+uci set dhcp.@host[-1].ip=192.168.1.2
+uci set dhcp.@host[-1].mac=00:00:00:00:00:01
+uci set dhcp.@host[-1].name=home
+uci set dhcp.@host[-1].dns=1		# to be added in /tmp/hosts/dhcp
+
+uci add dhcp host
+uci set dhcp.@host[-1].ip=192.168.1.3
+uci set dhcp.@host[-1].mac=00:00:00:00:00:02
+uci set dhcp.@host[-1].name=zinc
+uci set dhcp.@host[-1].dns=1
+
+uci add dhcp host
+uci set dhcp.@host[-1].ip=192.168.1.4
+uci set dhcp.@host[-1].mac=00:00:00:00:00:03
+uci set dhcp.@host[-1].name=nickel
+uci set dhcp.@host[-1].dns=1
+
+uci add dhcp host
+uci set dhcp.@host[-1].ip=192.168.1.9
+uci set dhcp.@host[-1].mac=00:00:00:00:00:04
+uci set dhcp.@host[-1].name=printer
+uci set dhcp.@host[-1].dns=1
+# or we could add the host entries to /etc/ethers
+# see: http://johnbokma.com/mexit/2008/09/03/dhcp-static-ip-dnsmasq.html
+
+# block access to specific sites
+#sed -i '/localhost$/s/$/ game.naver.com game.jr.naver.com kids.daum.net/' /etc/hosts
+sed -i '$a\
+\
+# sites to be blocked\
+address=/game.naver.com/127.0.0.1\
+address=/game.jr.naver.com/127.0.0.1\
+address=/kids.daum.net/127.0.0.1\
+address=/.contentlink.co.kr/127.0.0.1\
+address=/.contextads.net/127.0.0.1\
+address=/joins.com/127.0.0.1\
+address=/jssearch.com/127.0.0.1\
+address=/.keywordsconnect.com/127.0.0.1\
+address=/.newsad.co.kr/127.0.0.1\
+address=/.realclick.co.kr/127.0.0.1\
+address=/.semanticrep.com/127.0.0.1' /etc/dnsmasq.conf
+
+uci commit dhcp
+/etc/init.d/dnsmasq restart
+
+# static arp caches for pinging(and ssh) to static IPs even if turned off
+# see: https://johnlewis.ie/wake-on-lan-over-wireless/
+cat >>/etc/firewall.user <<END
+
+# static arp caches
+/sbin/arp -s $(uci get dhcp.@host[0].ip) $(uci get dhcp.@host[0].mac) -i br-lan
+/sbin/arp -s $(uci get dhcp.@host[1].ip) $(uci get dhcp.@host[1].mac) -i br-lan
+/sbin/arp -s $(uci get dhcp.@host[2].ip) $(uci get dhcp.@host[2].mac) -i br-lan
+END

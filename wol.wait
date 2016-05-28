@@ -1,0 +1,24 @@
+#!/bin/sh
+# wake it up if asleep
+# usage: wol.wait zinc
+
+# search for only IPs statically assigned
+i=0
+while host=`uci -q get dhcp.@host[$i]` &&
+    [ "`uci -q get dhcp.@host[$i].ip`" != "$1" -a \
+    "`uci -q get dhcp.@host[$i].name`" != "$1" ]
+do let i++; done
+
+[ "$host" ] && {
+    ip=`uci get dhcp.@host[$i].ip`
+    ping -c1 -w1 -qI br-lan $ip || {
+    #or arping -fqc 1 -I br-lan $ip || {
+	echo "wol: waking-up $1" >&2
+	ether-wake -i br-lan `uci get dhcp.@host[$i].mac`
+	for i in `seq ${2:-45}`; do	# wait for ping response for at most 45s
+	    ping -c1 -w1 -qI br-lan $ip && echo "woken up in $i pings" >&2 && exit
+	done
+	#or exec arping -fqw 30 -I br-lan $ip
+    }
+}
+# exit 0 if awake

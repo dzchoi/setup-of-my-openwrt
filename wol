@@ -1,0 +1,13 @@
+#!/bin/sh
+# wake it up unconditionally
+# usage: wol zinc
+
+# search for only IPs statically assigned
+i=0
+while host=`uci -q get dhcp.@host[$i]` &&
+    [ "`uci -q get dhcp.@host[$i].ip`" != "$1" -a \
+    "`uci -q get dhcp.@host[$i].name`" != "$1" ]
+do let i++; done
+
+[ "$host" ] && etherwake -i br-lan `uci get dhcp.@host[$i].mac`
+# exit 0 if successful

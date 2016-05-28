@@ -1,0 +1,13 @@
+#!/bin/sh
+
+uci -q del wireless.@wifi-device[0].disabled		# set .disabled=0
+uci set wireless.@wifi-iface[0].ssid=xxxxxxx
+uci set wireless.@wifi-iface[0].encryption=psk-mixed	# WPAPSK/WPA2PSK+AES
+uci set wireless.@wifi-iface[0].key=yyyyyyy
+
+# see: https://forums.kali.org/showthread.php?4129-Increase-Wi-Fi-TX-Power-Signal-Strength
+uci set wireless.radio0.channel=13	# with kernel compiled w/CONFIG_ATH_USER_REGD
+uci set wireless.radio0.country=KR
+
+uci commit wireless
+wifi

@@ -1,0 +1,136 @@
+#!/bin/sh
+
+# delete all redirects
+#while uci -q del firewall.@redirect[-1] >/dev/null; do :; done
+
+# port forwarding
+
+#uci add firewall redirect
+#uci set firewall.@redirect[-1].name=ftp
+#uci set firewall.@redirect[-1].proto=tcpudp
+#uci set firewall.@redirect[-1].src=wan
+#uci set firewall.@redirect[-1].src_dport=21
+#uci set firewall.@redirect[-1].dest_ip=192.168.1.2
+#uci set firewall.@redirect[-1].target=DNAT
+
+#uci add firewall redirect
+#uci set firewall.@redirect[-1].name=http
+#uci set firewall.@redirect[-1].proto=tcpudp
+#uci set firewall.@redirect[-1].src=wan
+#uci set firewall.@redirect[-1].src_dport=80
+#uci set firewall.@redirect[-1].dest_ip=192.168.1.2
+#uci set firewall.@redirect[-1].target=DNAT
+
+#uci add firewall redirect
+#uci set firewall.@redirect[-1].name=ssh
+#uci set firewall.@redirect[-1].proto=tcpudp
+#uci set firewall.@redirect[-1].src=wan
+##uci set firewall.@redirect[-1].src_dport=556
+#uci set firewall.@redirect[-1].src_dport=22
+#uci set firewall.@redirect[-1].dest_ip=192.168.1.3
+##uci set firewall.@redirect[-1].dest_port=22
+#uci set firewall.@redirect[-1].target=DNAT
+
+# open port for sshd
+
+# This is considered in the following input_wan_rule which takes priority over the
+# zone_wan_input.
+: <<'###'	# comment out just this line to include the following
+if sshd_port="`uci -q get dropbear.@dropbear[-1].Port`"; then
+    # find a rule having $sshd_port as the dest_port
+    i=0
+    while host=`uci -q get firewall.@rule[$i]` &&
+	[ "`uci -q get firewall.@rule[$i].dest_port`" != "$sshd_port" ]
+    do let i++; done
+
+    # add a rule if not found
+    if [ ! "$host" ]; then
+	uci add firewall rule
+	uci set firewall.@rule[-1].src=wan
+	uci set firewall.@rule[-1].proto=tcpudp
+	uci set firewall.@rule[-1].dest_port=$sshd_port
+	uci set firewall.@rule[-1].target=ACCEPT
+    fi
+fi
+###
+
+# trap for brute-force attacks
+# The table /proc/net/xt_recent/DEFAULT maintains total 100 IP addresses by default
+# (/sys/module/xt_recent/parameters/ip_list_tot)
+
+# An excerpt from: https://bbs.archlinux.org/viewtopic.php?id=35578
+# The normal behaviour for an operating system is to send a "tcp-reset" as an answer to
+# any tcp SYN sent to a closed port. If you drop packets, meaning you don't answer at
+# all, that can only mean two things:
+# - there is a stupid firewall somewhere on the way not behaving properly (like my
+#   D-Link router for example).
+# - there is a stupid firewall on the machine itself and an admin who thinks he can
+#   "hide" services by not answering.
+# The right way to make a service "invisible" to the outside is to mimic the default
+# behaviour, meaning you send back a tcp-reset (-j REJECT --reject-with tcp-reset in
+# iptables).
+
+# An excerpt from: https://community.qualys.com/docs/DOC-1185
+# When a generic UDP packet is sent to a UDP port of a remote host, one of the following
+# occurs:
+# - if the UDP port is open, the packet is accepted, no response packet is sent.
+# - if the UDP port is closed, an ICMP packet is sent in response with the appropriate
+#   error code such as Destination Unreachable.
+# Scanning UDP ports is more inference-based, since it does not rely on acknowledgements
+# from the remote host like TCP does, but instead collects all ICMP errors the remote
+# host sends for each closed port. Therefore, closed ports are detected by the presence
+# of ICMP response packets, open ports are detected by the lack of response packets.
+
+# How about TARPIT or blackhole?
+# see: http://www.chiark.greenend.org.uk/~peterb/network/drop-vs-reject
+
+sshd_port="`uci -q get dropbear.@dropbear[-1].Port`" &&
+! grep -Fqs "brute-force" /etc/firewall.user &&
+cat >>/etc/firewall.user <<END
+
+# trap for brute-force attacks (going gentle as if no services are available at all)
+iptables -F input_wan_rule
+iptables -A input_wan_rule -p tcp -m state --state NEW,INVALID -m recent --update -j REJECT --reject-with tcp-reset
+iptables -A input_wan_rule -p tcp --dport $sshd_port -j ACCEPT
+iptables -A input_wan_rule -p tcp -m state --state NEW,INVALID -m recent --set -j REJECT --reject-with tcp-reset
+# other ESTABLISHED/RELATED tcp packets will be allowed for input.
+END
+
+# Sleep time, kids!
+
+# Matching the current time for every packet may be an overkill!
+# And the trunk version is still having a bug with the kernel timezone of -0000, which
+# makes the xt_time always use UTC whether of not the --kerneltz is on.
+# (https://dev.openwrt.org/ticket/9657)
+: <<'END'	# comment out just this line to include the following
+grep -Fqe "--kerneltz" /etc/firewall.user ||
+cat >>/etc/firewall.user <<'END'
+
+# to block G-Pad and Mobile-iPhone at weekday nights
+macs="00:00:00:00:00:01 00:00:00:00:00:01 00:00:00:00:00:01"
+
+for mac in $macs; do
+    iptables -A forwarding_lan_rule \
+    -m mac --mac-source $mac \
+    -m time --timestart 22:00 --timestop 06:00 --weekdays Su,Mo,Tu,We,Th \
+    --contiguous --kerneltz \
+    -j REJECT
+done
+END
+    # the user chain forwarding_lan_rule is for traffics lan->wan only
+    # -j REJECT, since otherwise ACCEPTed as outgoing traffics
+    # -j zone_wan_dest_REJECT as well as -A zone_lan_forward would make the rules
+    # cleared on every firewall reload, since zone_* chains are internal ones.
+
+#uci commit firewall	# since no firewall rules are being added
+/etc/init.d/firewall restart
+
+# to block G-Pad and Mobile-iPhone at weekday nights
+macs="00:00:00:00:00:01 00:00:00:00:00:01 00:00:00:00:00:01"
+if ! crontab -l 2>/dev/null | grep -Fqs "Sleep time"; then
+    (crontab -l 2>/dev/null && echo; echo "\
+# Sleep time, kids!
+0 22 * * 0-4	for mac in $macs; do iptables -A forwarding_rule -m mac --mac-source \$mac -j REJECT; done
+0 06 * * 1-5	iptables -F forwarding_rule") | crontab -
+    #/etc/init.d/cron start
+fi
