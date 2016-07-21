@@ -1,7 +1,7 @@
 # Automatic Setup of my Openwrt Router
 
 ## About
-These are personal files for setting up my openwrt router(wr941nd_v5).
+These are personal script files in dash for setting up my OpenWrt router (wr941nd_v5).
 
 ## Features
 After reflashing my openwrt router, I just need to run `setup.all` to do automatically:
