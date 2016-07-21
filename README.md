@@ -1,4 +1,4 @@
-# Automatic Setup of my Openwrt Router
+# Automatic Setup of my OpenWrt Router
 
 ## About
 These are personal script files in dash for setting up my OpenWrt router (wr941nd_v5).
